@@ -59,8 +59,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip curl ansible
 
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Verify Terraform installation
+        run: terraform -version
 
       - name: Prepare SSH key for EC2
         run: |
