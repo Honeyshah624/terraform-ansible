@@ -4,11 +4,11 @@ variable "project_name" {
 }
 
 variable "vpc_id" {
-  description = "VPC ID for security group"
+  description = "VPC ID"
   type        = string
 }
 
-variable "allowed_ssh_cidr" {
-  description = "Allowed company/VPN public IP CIDR"
-  type        = string
+variable "allowed_ingress_cidrs" {
+  description = "Company CIDR ranges"
+  type        = list(string)
 }

@@ -4,11 +4,11 @@ variable "key_name" {
 }
 
 variable "public_key_path" {
-  description = "Local public key path"
+  description = "Path to public key"
   type        = string
 }
 
 variable "project_name" {
-  description = "Project name for tags"
+  description = "Project name"
   type        = string
 }

@@ -1,10 +1,5 @@
-variable "project_name" {
-  description = "Project name"
-  type        = string
-}
-
 variable "ami_id" {
-  description = "AMI ID for EC2 instances"
+  description = "Ubuntu AMI ID"
   type        = string
 }
 
@@ -24,6 +19,11 @@ variable "security_group_id" {
 }
 
 variable "key_name" {
-  description = "AWS key pair name"
+  description = "Key pair name"
+  type        = string
+}
+
+variable "project_name" {
+  description = "Project name"
   type        = string
 }

@@ -25,7 +25,7 @@ env:
 jobs:
   terraform-k8s:
     name: Terraform Ansible Kubernetes Setup
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     defaults:
       run:
@@ -36,33 +36,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials from GitHub Secrets
-        run: |
-          mkdir -p ~/.aws
-
-          cat > ~/.aws/credentials <<EOF
-          [default]
-          aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          EOF
-
-          cat > ~/.aws/config <<EOF
-          [default]
-          region=${{ vars.AWS_REGION }}
-          output=json
-          EOF
-
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Install required tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip curl ansible
+          sudo apt-get install -y ansible jq curl netcat-openbsd
 
-      - name: Verify Terraform installation
-        run: terraform -version
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
-      - name: Prepare SSH key for EC2
+      - name: Prepare SSH key
         run: |
           mkdir -p "$RUNNER_TEMP/ssh"
           echo "${{ secrets.EC2_PRIVATE_KEY }}" > "$RUNNER_TEMP/ssh/k8s-key"
@@ -78,19 +68,19 @@ jobs:
           project_name = "${{ vars.PROJECT_NAME }}"
           instance_type = "${{ vars.INSTANCE_TYPE }}"
           key_name = "${{ vars.KEY_NAME }}"
-          private_key_path = "$RUNNER_TEMP/ssh/k8s-key"
           public_key_path = "$RUNNER_TEMP/ssh/k8s-key.pub"
-          allowed_ssh_cidr = "${{ vars.ALLOWED_SSH_CIDR }}"
+          private_key_path = "$RUNNER_TEMP/ssh/k8s-key"
           subnet_id = "${{ vars.TF_SUBNET_ID }}"
+          allowed_ingress_cidrs = ${{ vars.ALLOWED_INGRESS_CIDRS }}
           EOF
 
       - name: Terraform init
         working-directory: ${{ env.TF_DIR }}
         run: terraform init
 
-      - name: Terraform format 
+      - name: Terraform format
         working-directory: ${{ env.TF_DIR }}
-        run: terraform fmt -recursive 
+        run: terraform fmt -recursive
 
       - name: Terraform validate
         working-directory: ${{ env.TF_DIR }}
@@ -109,3 +99,94 @@ jobs:
         if: ${{ github.event.inputs.action == 'destroy' }}
         working-directory: ${{ env.TF_DIR }}
         run: terraform destroy -auto-approve
+
+      - name: Get Terraform outputs
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          echo "MASTER_PUBLIC_IP=$(terraform output -raw master_public_ip)" >> $GITHUB_ENV
+          echo "WORKER_PUBLIC_IP=$(terraform output -raw worker_public_ip)" >> $GITHUB_ENV
+          echo "SECURITY_GROUP_ID=$(terraform output -raw security_group_id)" >> $GITHUB_ENV
+
+      - name: Get GitHub runner public IP
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          RUNNER_PUBLIC_IP=$(curl -s https://checkip.amazonaws.com | tr -d '\n')
+          echo "RUNNER_PUBLIC_IP=$RUNNER_PUBLIC_IP" >> $GITHUB_ENV
+          echo "GitHub runner public IP is $RUNNER_PUBLIC_IP"
+
+      - name: Temporarily allow SSH from GitHub runner
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --region "${{ vars.AWS_REGION }}" \
+            --group-id "$SECURITY_GROUP_ID" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "$RUNNER_PUBLIC_IP/32" || true
+
+      - name: Wait for SSH to master and worker
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          echo "Waiting for SSH to master: $MASTER_PUBLIC_IP"
+          for i in {1..40}; do
+            if nc -vz -w 5 "$MASTER_PUBLIC_IP" 22; then
+              echo "Master SSH is ready"
+              break
+            fi
+
+            echo "Master SSH not ready yet... attempt $i/40"
+            sleep 15
+          done
+
+          echo "Waiting for SSH to worker: $WORKER_PUBLIC_IP"
+          for i in {1..40}; do
+            if nc -vz -w 5 "$WORKER_PUBLIC_IP" 22; then
+              echo "Worker SSH is ready"
+              break
+            fi
+
+            echo "Worker SSH not ready yet... attempt $i/40"
+            sleep 15
+          done
+
+      - name: Generate Ansible inventory
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          cat > ansible/inventory.ini <<EOF
+          [master]
+          $MASTER_PUBLIC_IP ansible_user=ubuntu ansible_ssh_private_key_file=$RUNNER_TEMP/ssh/k8s-key ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30'
+
+          [workers]
+          $WORKER_PUBLIC_IP ansible_user=ubuntu ansible_ssh_private_key_file=$RUNNER_TEMP/ssh/k8s-key ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30'
+
+          [k8s_cluster:children]
+          master
+          workers
+          EOF
+
+          cat ansible/inventory.ini
+
+      - name: Test Ansible connectivity
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: ansible
+        run: |
+          ANSIBLE_HOST_KEY_CHECKING=False ansible all -i inventory.ini -m ping
+
+      - name: Run Ansible Kubernetes playbook
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: ansible
+        run: |
+          ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini site.yml
+
+      - name: Revoke temporary GitHub runner SSH rule
+        if: ${{ always() && github.event.inputs.action == 'apply' }}
+        run: |
+          if [ -n "${SECURITY_GROUP_ID:-}" ] && [ -n "${RUNNER_PUBLIC_IP:-}" ]; then
+            aws ec2 revoke-security-group-ingress \
+              --region "${{ vars.AWS_REGION }}" \
+              --group-id "$SECURITY_GROUP_ID" \
+              --protocol tcp \
+              --port 22 \
+              --cidr "$RUNNER_PUBLIC_IP/32" || true
+          fi

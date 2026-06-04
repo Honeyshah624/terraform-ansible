@@ -4,27 +4,27 @@ resource "aws_security_group" "this" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "SSH from company IP only"
+    description = "Emergency SSH from company CIDR ranges only"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = var.allowed_ingress_cidrs
   }
 
   ingress {
-    description = "Kubernetes API from company IP only"
+    description = "Kubernetes API from company CIDR ranges only"
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = var.allowed_ingress_cidrs
   }
 
   ingress {
-    description = "NodePort range from company IP only"
+    description = "NodePort range from company CIDR ranges only"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = var.allowed_ingress_cidrs
   }
 
   ingress {
