@@ -19,6 +19,7 @@ concurrency:
 
 env:
   TF_DIR: terraform
+  SSH_DIR: ${{ runner.temp }}/ssh
   AWS_REGION: ${{ vars.AWS_REGION }}
   AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
 
@@ -64,11 +65,11 @@ jobs:
 
       - name: Prepare SSH key for EC2
         run: |
-          mkdir -p "$RUNNER_TEMP/ssh"
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" > "$RUNNER_TEMP/ssh/k8s-key"
-          chmod 400 "$RUNNER_TEMP/ssh/k8s-key"
-          ssh-keygen -y -f "$RUNNER_TEMP/ssh/k8s-key" > "$RUNNER_TEMP/ssh/k8s-key.pub"
-          chmod 644 "$RUNNER_TEMP/ssh/k8s-key.pub"
+          mkdir -p "$SSH_DIR"
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > "$SSH_DIR/k8s-key"
+          chmod 400 "$SSH_DIR/k8s-key"
+          ssh-keygen -y -f "$SSH_DIR/k8s-key" > "$SSH_DIR/k8s-key.pub"
+          chmod 644 "$SSH_DIR/k8s-key.pub"
 
       - name: Generate Terraform variable file
         working-directory: ${{ env.TF_DIR }}
