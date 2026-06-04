@@ -6,7 +6,8 @@
   failed_when: false
 
 - name: Install Helm if not installed
-  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  shell: |
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   when: helm_check.rc != 0
 
 - name: Verify Helm installation
@@ -15,45 +16,27 @@
 
 - name: Copy Helm chart to master node
   copy:
-    src: "{{ local_chart_path }}/"
-    dest: "{{ remote_chart_path }}/"
-    owner: "{{ remote_user_name }}"
-    group: "{{ remote_user_name }}"
-    mode: '0755'
-
-- name: Check if application namespace exists
-  become_user: "{{ remote_user_name }}"
-  command: kubectl --kubeconfig {{ kubeconfig_path }} get namespace {{ app_namespace }}
-  register: namespace_check
-  changed_when: false
-  failed_when: false
+    src: "{{ playbook_dir }}/../helm/modernchair/"
+    dest: /tmp/modernchair/
+    mode: "0755"
 
 - name: Create application namespace
-  become_user: "{{ remote_user_name }}"
-  command: kubectl --kubeconfig {{ kubeconfig_path }} create namespace {{ app_namespace }}
-  when: namespace_check.rc != 0
+  command: kubectl create namespace modernchair
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: namespace_create
+  changed_when: namespace_create.rc == 0
+  failed_when: namespace_create.rc != 0 and 'AlreadyExists' not in namespace_create.stderr
 
-- name: Deploy MordenChair application using Helm
-  become_user: "{{ remote_user_name }}"
+- name: Deploy ModernChair application using Helm
   command: >
-    helm upgrade --install {{ app_release_name }} {{ remote_chart_path }}
-    --namespace {{ app_namespace }}
-    --values {{ remote_chart_path }}/values.yaml
-    --kubeconfig {{ kubeconfig_path }}
-  register: helm_deploy
-  changed_when: "'deployed' in helm_deploy.stdout or 'upgraded' in helm_deploy.stdout or 'Release' in helm_deploy.stdout"
+    helm upgrade --install modernchair /tmp/modernchair
+    --namespace modernchair
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
 
-- name: Show Helm releases
-  become_user: "{{ remote_user_name }}"
-  command: helm list -n {{ app_namespace }} --kubeconfig {{ kubeconfig_path }}
-  changed_when: false
-
-- name: Show application pods
-  become_user: "{{ remote_user_name }}"
-  command: kubectl --kubeconfig {{ kubeconfig_path }} get pods -n {{ app_namespace }}
-  changed_when: false
-
-- name: Show application service
-  become_user: "{{ remote_user_name }}"
-  command: kubectl --kubeconfig {{ kubeconfig_path }} get svc -n {{ app_namespace }}
+- name: Verify ModernChair deployment
+  command: kubectl get all -n modernchair
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
   changed_when: false
