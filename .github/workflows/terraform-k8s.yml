@@ -1,0 +1,108 @@
+name: Terraform Ansible Kubernetes Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Select Terraform action"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+concurrency:
+  group: terraform-k8s
+  cancel-in-progress: false
+
+env:
+  TF_DIR: terraform
+
+jobs:
+  terraform-k8s:
+    name: Terraform Ansible Kubernetes Setup
+    runs-on: self-hosted
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials from GitHub Secrets
+        run: |
+          mkdir -p ~/.aws
+          cat > ~/.aws/credentials <<EOF
+          [default]
+          aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          EOF
+
+          cat > ~/.aws/config <<EOF
+          [default]
+          region=${{ vars.AWS_REGION }}
+          output=json
+          EOF
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl ansible
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Prepare SSH key for EC2
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/k8s-key
+          chmod 400 ~/.ssh/k8s-key
+          ssh-keygen -y -f ~/.ssh/k8s-key > ~/.ssh/k8s-key.pub
+          chmod 644 ~/.ssh/k8s-key.pub
+
+      - name: Generate Terraform variable file
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          cat > github.auto.tfvars <<EOF
+          region = "${{ vars.AWS_REGION }}"
+          project_name = "${{ vars.PROJECT_NAME }}"
+          instance_type = "${{ vars.INSTANCE_TYPE }}"
+          key_name = "${{ vars.KEY_NAME }}"
+          private_key_path = "$HOME/.ssh/k8s-key"
+          public_key_path = "$HOME/.ssh/k8s-key.pub"
+          allowed_ssh_cidr = "${{ vars.ALLOWED_SSH_CIDR }}"
+          subnet_id = "${{ vars.TF_SUBNET_ID }}"
+          EOF
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform init
+
+      - name: Terraform format check
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform fmt -recursive -check
+
+      - name: Terraform validate
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform plan
+
+      - name: Terraform apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform apply -auto-approve
+
+      - name: Terraform destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        working-directory: ${{ env.TF_DIR }}
+        run: terraform destroy -auto-approve
