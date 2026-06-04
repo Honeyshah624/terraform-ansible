@@ -1,0 +1,59 @@
+---
+- name: Check if Helm is installed
+  command: helm version --short
+  register: helm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Helm if not installed
+  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  when: helm_check.rc != 0
+
+- name: Verify Helm installation
+  command: helm version --short
+  changed_when: false
+
+- name: Copy Helm chart to master node
+  copy:
+    src: "{{ local_chart_path }}/"
+    dest: "{{ remote_chart_path }}/"
+    owner: "{{ remote_user_name }}"
+    group: "{{ remote_user_name }}"
+    mode: '0755'
+
+- name: Check if application namespace exists
+  become_user: "{{ remote_user_name }}"
+  command: kubectl --kubeconfig {{ kubeconfig_path }} get namespace {{ app_namespace }}
+  register: namespace_check
+  changed_when: false
+  failed_when: false
+
+- name: Create application namespace
+  become_user: "{{ remote_user_name }}"
+  command: kubectl --kubeconfig {{ kubeconfig_path }} create namespace {{ app_namespace }}
+  when: namespace_check.rc != 0
+
+- name: Deploy MordenChair application using Helm
+  become_user: "{{ remote_user_name }}"
+  command: >
+    helm upgrade --install {{ app_release_name }} {{ remote_chart_path }}
+    --namespace {{ app_namespace }}
+    --values {{ remote_chart_path }}/values.yaml
+    --kubeconfig {{ kubeconfig_path }}
+  register: helm_deploy
+  changed_when: "'deployed' in helm_deploy.stdout or 'upgraded' in helm_deploy.stdout or 'Release' in helm_deploy.stdout"
+
+- name: Show Helm releases
+  become_user: "{{ remote_user_name }}"
+  command: helm list -n {{ app_namespace }} --kubeconfig {{ kubeconfig_path }}
+  changed_when: false
+
+- name: Show application pods
+  become_user: "{{ remote_user_name }}"
+  command: kubectl --kubeconfig {{ kubeconfig_path }} get pods -n {{ app_namespace }}
+  changed_when: false
+
+- name: Show application service
+  become_user: "{{ remote_user_name }}"
+  command: kubectl --kubeconfig {{ kubeconfig_path }} get svc -n {{ app_namespace }}
+  changed_when: false

@@ -1,0 +1,24 @@
+---
+- name: Configure common Kubernetes components on all nodes
+  hosts: k8s_cluster
+  become: yes
+  roles:
+    - common
+
+- name: Initialize Kubernetes master node
+  hosts: master
+  become: yes
+  roles:
+    - master
+
+- name: Join worker node to Kubernetes cluster
+  hosts: workers
+  become: yes
+  roles:
+    - worker
+
+- name: Install Helm and deploy MordenChair application
+  hosts: master
+  become: yes
+  roles:
+    - helm_app

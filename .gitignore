@@ -1,0 +1,29 @@
+# Terraform local files
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+.terraform.lock.hcl
+
+# Terraform variable secrets
+*.auto.tfvars
+terraform.tfvars
+
+# SSH/private keys
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+k8s-key
+k8s-key.pub
+
+# Ansible generated files
+ansible/inventory.ini
+*.retry
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/

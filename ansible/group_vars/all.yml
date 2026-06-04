@@ -1,0 +1,45 @@
+---
+ansible_python_interpreter: /usr/bin/python3
+
+kubernetes_repo_version: "v1.30"
+kubernetes_package_state: "present"
+
+pod_network_cidr: "192.168.0.0/16"
+
+calico_version: "v3.28.0"
+calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+
+remote_user_name: "ubuntu"
+kubeconfig_dir: "/home/{{ remote_user_name }}/.kube"
+kubeconfig_path: "/home/{{ remote_user_name }}/.kube/config"
+admin_conf_path: "/etc/kubernetes/admin.conf"
+
+join_command_remote_path: "/tmp/kubeadm_join_command.sh"
+join_command_local_path: "/tmp/kubeadm_join_command.sh"
+
+k8s_kernel_modules:
+  - overlay
+  - br_netfilter
+
+k8s_sysctl_settings:
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.bridge.bridge-nf-call-ip6tables: "1"
+  net.ipv4.ip_forward: "1"
+
+base_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gpg
+  - software-properties-common
+  - containerd
+
+kubernetes_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+app_namespace: "modernchair"
+app_release_name: "modernchair"
+local_chart_path: "/home/einfochips/terraform-ansible/helm/modernchair"
+remote_chart_path: "/home/ubuntu/modernchair-chart"

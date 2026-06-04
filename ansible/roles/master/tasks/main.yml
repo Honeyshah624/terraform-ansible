@@ -1,0 +1,50 @@
+---
+- name: Check if master is already initialized
+  stat:
+    path: "{{ admin_conf_path }}"
+  register: kubeadm_admin_conf
+
+- name: Initialize Kubernetes master
+  command: kubeadm init --pod-network-cidr={{ pod_network_cidr }}
+  when: not kubeadm_admin_conf.stat.exists
+
+- name: Create kubeconfig directory for remote user
+  file:
+    path: "{{ kubeconfig_dir }}"
+    state: directory
+    owner: "{{ remote_user_name }}"
+    group: "{{ remote_user_name }}"
+    mode: '0755'
+
+- name: Copy admin kubeconfig for remote user
+  copy:
+    src: "{{ admin_conf_path }}"
+    dest: "{{ kubeconfig_path }}"
+    remote_src: yes
+    owner: "{{ remote_user_name }}"
+    group: "{{ remote_user_name }}"
+    mode: '0644'
+
+- name: Install Calico CNI
+  become_user: "{{ remote_user_name }}"
+  shell: kubectl apply -f {{ calico_manifest_url }}
+  register: calico_apply
+  changed_when: "'created' in calico_apply.stdout or 'configured' in calico_apply.stdout"
+  failed_when: calico_apply.rc != 0
+
+- name: Generate kubeadm join command
+  command: kubeadm token create --print-join-command
+  register: join_command
+  changed_when: false
+
+- name: Save join command on master
+  copy:
+    dest: "{{ join_command_remote_path }}"
+    content: "{{ join_command.stdout }}"
+    mode: '0755'
+
+- name: Fetch join command to local Ansible controller
+  fetch:
+    src: "{{ join_command_remote_path }}"
+    dest: "{{ join_command_local_path }}"
+    flat: yes

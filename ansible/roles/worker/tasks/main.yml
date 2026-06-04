@@ -1,0 +1,16 @@
+---
+- name: Check if worker already joined cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Copy join command to worker
+  copy:
+    src: "{{ join_command_local_path }}"
+    dest: "{{ join_command_remote_path }}"
+    mode: '0755'
+  when: not kubelet_conf.stat.exists
+
+- name: Join worker to Kubernetes cluster
+  command: sh {{ join_command_remote_path }}
+  when: not kubelet_conf.stat.exists
